@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>空气质量监测终端</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root[data-theme="dark"] {
+            --bg-color: #121212; --text-color: #e0e0e0; --card-bg: #1e1e1e;
+            --card-border: #2f2f2f; --accent-color: #00d2ff; --header-bg: #000000;
+            --subtext-color: rgba(255, 255, 255, 0.55); --btn-inactive: #333;
+            --btn-active: #00d2ff; --btn-text: #fff;
+            --banner-bg: #1a1a1a;
+        }
+        :root[data-theme="light"] {
+            --bg-color: #f4f6f8; --text-color: #2c3e50; --card-bg: #ffffff;
+            --card-border: #e1e8ed; --accent-color: #007bff; --header-bg: #ffffff;
+            --subtext-color: rgba(0, 0, 0, 0.5); --btn-inactive: #e9ecef;
+            --btn-active: #007bff; --btn-text: #fff;
+            --banner-bg: #ffffff;
+        }
+        * { box-sizing: border-box; transition: background-color 0.25s, color 0.25s; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 0; }
+        
+        header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 15px 30px; background-color: var(--header-bg); border-bottom: 1px solid var(--card-border); 
+        }
+        header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+        
+        .header-actions { display: flex; gap: 12px; }
+        .theme-toggle { background-color: var(--accent-color); color: #fff; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        .mask-toggle { background-color: var(--btn-inactive); color: var(--text-color); border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+
+        .outdoor-banner {
+            margin: 20px 30px 0 30px; padding: 14px 20px; background: var(--banner-bg);
+            border: 1px solid var(--card-border); border-radius: 12px;
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+        }
+        .outdoor-title { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: bold; }
+        .outdoor-tag { 
+            padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: normal; 
+            white-space: nowrap; 
+        }
+        .outdoor-metrics { display: flex; align-items: center; gap: 20px; font-size: 13px; flex-wrap: wrap; }
+        .metric-val { font-weight: bold; font-size: 15px; }
+
+        #device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; padding: 20px 30px; }
+        
+        .device-card { 
+            background-color: var(--card-bg); border: 1px solid var(--card-border); 
+            border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); 
+            display: flex; flex-direction: column; cursor: grab; 
+        }
+        .device-card:active { cursor: grabbing; }
+        .device-card.dragging { opacity: 0.4; border: 2px dashed var(--accent-color); }
+        .device-card.drag-over { outline: 2px solid var(--accent-color); transform: scale(1.01); }
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px; margin-bottom: 15px; flex-wrap: wrap; gap: 8px; }
+        .device-name { font-size: 18px; font-weight: bold; color: var(--accent-color); }
+        .card-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--subtext-color); font-family: monospace; flex-wrap: wrap; }
+        .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .sensor-item { background: rgba(125, 125, 125, 0.05); padding: 10px 14px; border-radius: 8px; display: flex; flex-direction: column; }
+        .sensor-label { font-size: 12px; opacity: 0.7; margin-bottom: 4px; }
+        .sensor-value { font-size: 22px; font-weight: bold; }
+        .sensor-unit { font-size: 13px; opacity: 0.7; }
+        
+        .chart-header { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; padding-top: 10px; border-top: 1px dashed var(--card-border); }
+        .chart-title { font-size: 13px; font-weight: 600; opacity: 0.8; }
+        .btn-group { display: flex; gap: 6px; }
+        .btn-range { background: var(--btn-inactive); color: var(--text-color); border: none; padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+        .btn-range.active { background: var(--btn-active); color: #fff; font-weight: bold; }
+        .chart-container { width: 100%; height: 190px; margin-top: 5px; }
+        
+        .good { color: #00e676; } .moderate { color: #ffeb3b; } .bad { color: #ff5252; }
+        
+        /* 美国 EPA AQI 颜色分类 (6级) */
+        .bg-good { background: rgba(0, 230, 118, 0.2); color: #00e676; }
+        .bg-moderate { background: rgba(255, 235, 59, 0.2); color: #fbc02d; }
+        .bg-usg { background: rgba(255, 152, 0, 0.2); color: #ff9800; } /* 橙色: 对敏感人群不健康 */
+        .bg-unhealthy { background: rgba(255, 82, 82, 0.2); color: #ff5252; } /* 红色: 不健康 */
+        .bg-very-unhealthy { background: rgba(156, 39, 176, 0.2); color: #9c27b0; } /* 紫色: 非常不健康 */
+        .bg-hazardous { background: rgba(121, 85, 72, 0.2); color: #795548; } /* 褐色: 严重污染 */
+        .bg-gray { background: rgba(125, 125, 125, 0.2); color: #888; }
+        
+        :root[data-theme="light"] .moderate { color: #f57f17; } 
+        :root[data-theme="light"] .good { color: #2e7d32; } 
+        :root[data-theme="light"] .bg-gray { background: rgba(0,0,0,0.1); color: #666; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>IoT 环境监测面板</h1>
+        <div class="header-actions">
+            <button class="mask-toggle" id="mask-btn" onclick="toggleNameMask()">隐藏设备名</button>
+            <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">切换至浅色模式</button>
+        </div>
+    </header>
+
+    <div class="outdoor-banner">
+        <div class="outdoor-title">
+            <span id="outdoor-city-label">📍 室外实时空气 (AQICN)</span>
+            <span class="outdoor-tag bg-gray" id="outdoor-tag">等待获取...</span>
+        </div>
+        <div class="outdoor-metrics">
+            <div>PM2.5: <span class="metric-val" id="outdoor-pm25">--</span> μg/m³</div>
+            <div>PM10: <span class="metric-val" id="outdoor-pm10">--</span> μg/m³</div>
+            <div>O₃(指数): <span class="metric-val" id="outdoor-o3">--</span></div>
+            <div>SO₂(指数): <span class="metric-val" id="outdoor-so2">--</span></div>
+            <div>NO₂(指数): <span class="metric-val" id="outdoor-no2">--</span></div>
+            <div>AQI(US): <span class="metric-val" id="outdoor-aqi">--</span></div>
+            <div>AQI(CN): <span class="metric-val" id="outdoor-aqi-cn">--</span></div>
+            <div style="color: var(--subtext-color); font-size: 11px;" id="outdoor-time">更新时间: --</div>
+        </div>
+    </div>
+
+    <div id="device-grid"></div>
+
+    <script>
+        const chartInstances = {};
+        const activeRanges = {};
+        let isNameMasked = false;
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const btn = document.getElementById('theme-btn');
+            const isDark = html.getAttribute('data-theme') === 'dark';
+            html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            btn.innerText = isDark ? '切换至深色模式' : '切换至浅色模式';
+            Object.keys(chartInstances).forEach(mac => fetchChartData(mac, activeRanges[mac] || '24h'));
+        }
+
+        function toggleNameMask() {
+            isNameMasked = !isNameMasked;
+            document.getElementById('mask-btn').innerText = isNameMasked ? '显示设备名' : '隐藏设备名';
+            
+            document.querySelectorAll('.device-name').forEach(el => {
+                const rawName = el.getAttribute('data-raw-name');
+                if (rawName) {
+                    el.innerText = isNameMasked ? '****' : rawName;
+                }
+            });
+        }
+
+        async function fetchOutdoorData() {
+            try {
+                const res = await fetch('api/outdoor');
+                const data = await res.json();
+                
+                if (data.city) {
+                    const cityStr = data.city.charAt(0).toUpperCase() + data.city.slice(1);
+                    document.getElementById('outdoor-city-label').innerText = `📍 ${cityStr} · 室外实时空气 (AQICN)`;
+                }
+
+                if (data.pm25 !== null) {
+                    document.getElementById('outdoor-pm25').innerText = data.pm25;
+                    document.getElementById('outdoor-pm10').innerText = data.pm10 || '--';
+                    document.getElementById('outdoor-o3').innerText = data.o3 || '--';
+                    document.getElementById('outdoor-so2').innerText = data.so2 || '--';
+                    document.getElementById('outdoor-no2').innerText = data.no2 || '--';
+                    document.getElementById('outdoor-aqi').innerText = data.aqi || '--';
+                    document.getElementById('outdoor-aqi-cn').innerText = data.aqi_cn || '--';
+                    document.getElementById('outdoor-time').innerText = `更新时间: ${data.updated_at || '--'}`;
+                }
+                
+                const tag = document.getElementById('outdoor-tag');
+                tag.innerText = data.status;
+                let bgClass = 'bg-gray';
+                
+                // 完全对齐在意空气的评级标准 (基于 US AQI 分段)
+                if (data.status === '优') bgClass = 'bg-good';
+                else if (data.status === '中等') bgClass = 'bg-moderate';
+                else if (data.status === '对敏感人群不健康') bgClass = 'bg-usg';
+                else if (data.status === '不健康') bgClass = 'bg-unhealthy';
+                else if (data.status === '非常不健康') bgClass = 'bg-very-unhealthy';
+                else if (data.status === '严重污染') bgClass = 'bg-hazardous';
+                else if (data.status !== '等待获取...') bgClass = 'bg-gray';
+
+                tag.className = 'outdoor-tag ' + bgClass;
+
+            } catch (e) {}
+        }
+
+        // ================= 拖拽排序逻辑 =================
+        let dragSrcEl = null;
+
+        function handleDragStart(e) {
+            dragSrcEl = this;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+            this.classList.add('dragging');
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDragEnter(e) { this.classList.add('drag-over'); }
+        function handleDragLeave(e) { this.classList.remove('drag-over'); }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (dragSrcEl !== this) {
+                const grid = document.getElementById('device-grid');
+                const children = Array.from(grid.children);
+                const srcIndex = children.indexOf(dragSrcEl);
+                const tgtIndex = children.indexOf(this);
+                
+                if (srcIndex < tgtIndex) {
+                    this.after(dragSrcEl);
+                } else {
+                    this.before(dragSrcEl);
+                }
+                saveCurrentOrder();
+                
+                setTimeout(() => {
+                    const mac = dragSrcEl.id.replace('card-', '');
+                    if (chartInstances[mac]) {
+                        chartInstances[mac].th.resize();
+                        chartInstances[mac].air.resize();
+                    }
+                }, 50);
+            }
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+            document.querySelectorAll('.device-card').forEach(c => c.classList.remove('drag-over'));
+        }
+
+        function saveCurrentOrder() {
+            const grid = document.getElementById('device-grid');
+            const order = Array.from(grid.children).map(card => card.id.replace('card-', ''));
+            localStorage.setItem('zm1_device_order', JSON.stringify(order));
+        }
+
+        function createDeviceCard(device) {
+            const mac = device.mac;
+            activeRanges[mac] = '24h';
+
+            const card = document.createElement('div');
+            card.className = 'device-card';
+            card.id = `card-${mac}`;
+            card.setAttribute('draggable', 'true');
+            card.title = '长按卡片可拖拽排序';
+            
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="device-name" id="name-${mac}" data-raw-name="${device.name || mac}">
+                        ${isNameMasked ? '****' : (device.name || mac)}
+                    </div>
+                    <div class="card-meta">
+                        <span>MAC: ${mac.toUpperCase()}</span>
+                        <span id="time-${mac}">更新时间: ${device.updated_at || '--'}</span>
+                    </div>
+                </div>
+                <div class="sensor-grid">
+                    <div class="sensor-item">
+                        <span class="sensor-label">🌡️ 温度</span>
+                        <span class="sensor-value" id="temp-${mac}">-- <span class="sensor-unit">°C</span></span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">💧 湿度</span>
+                        <span class="sensor-value" id="hum-${mac}">-- <span class="sensor-unit">%</span></span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">💨 PM2.5</span>
+                        <span class="sensor-value" id="pm25-${mac}">-- <span class="sensor-unit">μg/m³</span></span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="sensor-label">🧪 TVOC</span>
+                        <span class="sensor-value" id="hcho-${mac}">-- <span class="sensor-unit">mg/m³</span></span>
+                    </div>
+                </div>
+                
+                <div class="chart-header">
+                    <span class="chart-title">历史趋势</span>
+                    <div class="btn-group">
+                        <button class="btn-range active" id="btn-24h-${mac}" onclick="switchRange('${mac}', '24h')">24小时</button>
+                        <button class="btn-range" id="btn-7d-${mac}" onclick="switchRange('${mac}', '7d')">7天</button>
+                    </div>
+                </div>
+                <div class="chart-container" id="chart-th-${mac}"></div>
+                <div class="chart-container" id="chart-air-${mac}"></div>
+            `;
+            
+            card.addEventListener('dragstart', handleDragStart);
+            card.addEventListener('dragover', handleDragOver);
+            card.addEventListener('dragenter', handleDragEnter);
+            card.addEventListener('dragleave', handleDragLeave);
+            card.addEventListener('drop', handleDrop);
+            card.addEventListener('dragend', handleDragEnd);
+
+            document.getElementById('device-grid').appendChild(card);
+
+            chartInstances[mac] = {
+                th: echarts.init(document.getElementById(`chart-th-${mac}`)),
+                air: echarts.init(document.getElementById(`chart-air-${mac}`))
+            };
+            fetchChartData(mac, '24h');
+        }
+
+        function switchRange(mac, range) {
+            activeRanges[mac] = range;
+            document.getElementById(`btn-24h-${mac}`).className = `btn-range ${range === '24h' ? 'active' : ''}`;
+            document.getElementById(`btn-7d-${mac}`).className = `btn-range ${range === '7d' ? 'active' : ''}`;
+            fetchChartData(mac, range);
+        }
+
+        function updateCardValues(dev) {
+            const mac = dev.mac;
+            const nameEl = document.getElementById(`name-${mac}`);
+            nameEl.setAttribute('data-raw-name', dev.name);
+            nameEl.innerText = isNameMasked ? '****' : dev.name;
+
+            document.getElementById(`time-${mac}`).innerText = `更新时间: ${dev.updated_at}`;
+
+            if (dev.temperature !== null) {
+                document.getElementById(`temp-${mac}`).innerHTML = `${dev.temperature.toFixed(1)} <span class="sensor-unit">°C</span>`;
+            }
+            if (dev.humidity !== null) {
+                document.getElementById(`hum-${mac}`).innerHTML = `${dev.humidity.toFixed(1)} <span class="sensor-unit">%</span>`;
+            }
+            if (dev.pm25 !== null) {
+                let colorClass = 'good';
+                if (dev.pm25 > 12.0 && dev.pm25 <= 35.4) {
+                    colorClass = 'moderate'; 
+                } else if (dev.pm25 > 35.4) {
+                    colorClass = 'bad';
+                }
+                document.getElementById(`pm25-${mac}`).innerHTML = `<span class="${colorClass}">${dev.pm25}</span> <span class="sensor-unit">μg/m³</span>`;
+            }
+            if (dev.formaldehyde !== null) {
+                let colorClass = 'good';
+                if (dev.formaldehyde > 0.08) colorClass = 'bad';
+                document.getElementById(`hcho-${mac}`).innerHTML = `<span class="${colorClass}">${dev.formaldehyde.toFixed(2)}</span> <span class="sensor-unit">mg/m³</span>`;
+            }
+        }
+
+        async function fetchChartData(mac, range) {
+            try {
+                const res = await fetch(`api/devices/${mac}/history?range=${range}`);
+                const json = await res.json();
+                renderChart(mac, json.data, range);
+            } catch (e) {}
+        }
+
+        function renderChart(mac, historyData, range) {
+            const charts = chartInstances[mac];
+            if (!charts) return;
+
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            const axisTextColor = isDark ? '#888' : '#666';
+            const splitLineColor = isDark ? '#2f2f2f' : '#e1e8ed';
+
+            const times = historyData.map(item => range === '24h' ? item.time.slice(11, 16) : item.time.slice(5, 16));
+            const temps = historyData.map(item => item.temperature);
+            const hums = historyData.map(item => item.humidity);
+            const pm25s = historyData.map(item => item.pm25);
+            const hchos = historyData.map(item => item.formaldehyde);
+
+            const commonGrid = { left: '3%', right: '3%', bottom: '8%', top: '25%', containLabel: true };
+
+            charts.th.setOption({
+                backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
+                legend: { data: ['温度', '湿度'], textStyle: { color: axisTextColor, fontSize: 11 }, top: 0 },
+                grid: commonGrid,
+                xAxis: { type: 'category', data: times, axisLabel: { color: axisTextColor, fontSize: 10 }, axisLine: { lineStyle: { color: splitLineColor } } },
+                yAxis: [
+                    { type: 'value', name: '°C', nameTextStyle: { color: axisTextColor, fontSize: 10 }, axisLabel: { color: axisTextColor, fontSize: 10 }, splitLine: { lineStyle: { color: splitLineColor } } },
+                    { type: 'value', name: '%', nameTextStyle: { color: axisTextColor, fontSize: 10 }, axisLabel: { color: axisTextColor, fontSize: 10 }, splitLine: { show: false } }
+                ],
+                series: [
+                    { name: '温度', type: 'line', smooth: true, data: temps, yAxisIndex: 0, itemStyle: { color: '#ff7043' } },
+                    { name: '湿度', type: 'line', smooth: true, data: hums, yAxisIndex: 1, itemStyle: { color: '#29b6f6' } }
+                ]
+            });
+
+            charts.air.setOption({
+                backgroundColor: 'transparent', tooltip: { trigger: 'axis' },
+                legend: { data: ['PM2.5', 'TVOC'], textStyle: { color: axisTextColor, fontSize: 11 }, top: 0 },
+                grid: commonGrid,
+                xAxis: { type: 'category', data: times, axisLabel: { color: axisTextColor, fontSize: 10 }, axisLine: { lineStyle: { color: splitLineColor } } },
+                yAxis: [
+                    { type: 'value', name: 'μg/m³', nameTextStyle: { color: axisTextColor, fontSize: 10 }, axisLabel: { color: axisTextColor, fontSize: 10 }, splitLine: { lineStyle: { color: splitLineColor } } },
+                    { type: 'value', name: 'mg/m³', nameTextStyle: { color: axisTextColor, fontSize: 10 }, axisLabel: { color: axisTextColor, fontSize: 10 }, splitLine: { show: false } }
+                ],
+                series: [
+                    { name: 'PM2.5', type: 'line', smooth: true, data: pm25s, yAxisIndex: 0, itemStyle: { color: '#00e676' } },
+                    { name: 'TVOC', type: 'line', smooth: true, data: hchos, yAxisIndex: 1, itemStyle: { color: '#ab47bc' } }
+                ]
+            });
+
+            setTimeout(() => { charts.th.resize(); charts.air.resize(); }, 100);
+        }
+
+        let initialSortDone = false;
+
+        async function pollLatestData() {
+            try {
+                const res = await fetch('api/devices/latest');
+                let devices = await res.json();
+                
+                let savedOrder = JSON.parse(localStorage.getItem('zm1_device_order'));
+                
+                devices.sort((a, b) => {
+                    if (savedOrder && savedOrder.length > 0) {
+                        let idxA = savedOrder.indexOf(a.mac);
+                        let idxB = savedOrder.indexOf(b.mac);
+                        if (idxA === -1) idxA = 999;
+                        if (idxB === -1) idxB = 999;
+                        if (idxA !== idxB) return idxA - idxB;
+                    }
+                    const nameA = a.name || a.mac;
+                    const nameB = b.name || b.mac;
+                    return nameA.localeCompare(nameB, 'zh-CN');
+                });
+
+                const grid = document.getElementById('device-grid');
+                devices.forEach(dev => {
+                    let card = document.getElementById(`card-${dev.mac}`);
+                    if (!card) {
+                        createDeviceCard(dev);
+                        card = document.getElementById(`card-${dev.mac}`);
+                    }
+                    
+                    if (!initialSortDone) {
+                        grid.appendChild(card);
+                    }
+                    
+                    updateCardValues(dev);
+                });
+                
+                if (devices.length > 0 && !initialSortDone) {
+                    initialSortDone = true;
+                    if (!savedOrder) saveCurrentOrder();
+                }
+            } catch (err) {}
+        }
+
+        fetchOutdoorData();
+        pollLatestData();
+        setInterval(pollLatestData, 5000);
+        setInterval(fetchOutdoorData, 300000);
+
+        window.addEventListener('resize', () => {
+            Object.values(chartInstances).forEach(charts => {
+                charts.th.resize();
+                charts.air.resize();
+            });
+        });
+    </script>
+</body>
+</html>

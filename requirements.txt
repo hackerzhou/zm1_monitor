@@ -1,0 +1,4 @@
+flask>=3.0.0
+paho-mqtt>=1.6.1
+waitress>=3.0.0
+pytz>=2023.3
